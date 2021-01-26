@@ -24,3 +24,12 @@ jobs:
           npm run test:app
         env:
           CI: true
+
+      - name: lint
+        run: |
+          npm ci
+          npm run test:other
+          npm run test:code
+          npm run test:typecheck
+        env:
+          CI: true
