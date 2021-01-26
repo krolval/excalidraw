@@ -4,7 +4,9 @@ on:
   push:
     branches:
       - master
-
+  workflow_dispatch:
+env:
+  REP: krolval/excalidraw
 jobs:
   publish-docker:
     runs-on: ubuntu-latest
@@ -24,13 +26,41 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      - uses: actions/checkout@v2
-      - uses: docker/build-push-action@v2
+      - name: Prepare Tags
+        id: prep
+        run: |
+          DOCKER_IMAGE=${DOCKER_USERNAME}
+          VERSION=edge
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ $GITHUB_REF == refs/heads/* ]]; then
+            VERSION=$(echo ${GITHUB_REF#refs/heads/} | sed -r 's#/+#-#g')
+          elif [[ $GITHUB_REF == refs/pull/* ]]; then
+            VERSION=pr-${{ github.event.number }}
+          fi
+          TAGS="${DOCKER_IMAGE}:${VERSION}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAGS="$TAGS,${DOCKER_IMAGE}:sha-${GITHUB_SHA::8}"
+          fi
+          echo ::set-output name=version::${VERSION}
+          echo ::set-output name=tags::${TAGS}
+          echo ::set-output name=created::$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: excalidraw/excalidraw
+
+      - uses: actions/checkout@v2
+      - uses: docker/build-push-action@v2
+        with:
           tag_with_ref: true
           tag_with_sha: true
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache,mode=max
+          tags: ${{ steps.prep.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+            org.opencontainers.image.revision=${{ github.sha }}
